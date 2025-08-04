@@ -62,8 +62,8 @@ public class VoxelManager : MonoBehaviour
     void CreateTerrain()
     {
         // Create stone sphere shell
-        int radius = 10;
-        float thickness = 3f; // Shell thickness
+        int radius = 20;
+        float thickness = 2f; // Shell thickness
 
         for (int x = 0; x < gridSize; x++)
         {

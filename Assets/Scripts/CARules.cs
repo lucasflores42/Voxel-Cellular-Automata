@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class CellularAutomataRules
@@ -29,62 +30,58 @@ public class CellularAutomataRules
 
     private void TryMoveSand(Voxel[,,] grid, int x, int y, int z)
     {
-        // Calculate direction to center (no normalization needed)
         Vector3 toCenter = shellCenter - new Vector3(x, y, z);
 
-        // Get integer movement directions (-1, 0, or 1 for each axis)
-        int xStep = toCenter.x > 0 ? 1 : (toCenter.x < 0 ? -1 : 0);
-        int yStep = toCenter.y > 0 ? 1 : (toCenter.y < 0 ? -1 : 0);
-        int zStep = toCenter.z > 0 ? 1 : (toCenter.z < 0 ? -1 : 0);
+        // Get all possible movement directions that point toward center
+        List<Vector3Int> validDirections = new List<Vector3Int>();
 
-        // Try moving directly toward center first
-        if (IsValidPosition(grid, x + xStep, y + yStep, z + zStep))
+        // Generate all 26 possible neighbor directions (3D Moore neighborhood)
+        for (int dx = -1; dx <= 1; dx++)
         {
-            SwapVoxels(grid, x, y, z, x + xStep, y + yStep, z + zStep);
-            return;
-        }
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                for (int dz = -1; dz <= 1; dz++)
+                {
+                    if (dx == 0 && dy == 0 && dz == 0) continue; // Skip self
 
-        // If blocked, try alternative 2D radial movements
-        if (IsValidPosition(grid, x + xStep, y + yStep, z)) // X+Y
-        {
-            SwapVoxels(grid, x, y, z, x + xStep, y + yStep, z);
-            return;
-        }
-        if (IsValidPosition(grid, x, y + yStep, z + zStep)) // Y+Z
-        {
-            SwapVoxels(grid, x, y, z, x, y + yStep, z + zStep);
-            return;
-        }
-        if (IsValidPosition(grid, x + xStep, y, z + zStep)) // X+Z
-        {
-            SwapVoxels(grid, x, y, z, x + xStep, y, z + zStep);
-            return;
+                    // Only consider directions that move toward center
+                    if (dx * toCenter.x + dy * toCenter.y + dz * toCenter.z > 0)
+                    {
+                        validDirections.Add(new Vector3Int(dx, dy, dz));
+                    }
+                }
+            }
         }
 
-        // If still blocked, try pure axis movements
-        if (IsValidPosition(grid, x + xStep, y, z)) // X only
+        // Shuffle directions to remove any processing order bias
+        for (int i = 0; i < validDirections.Count; i++)
         {
-            SwapVoxels(grid, x, y, z, x + xStep, y, z);
-            return;
+            int randomIndex = Random.Range(i, validDirections.Count);
+            (validDirections[i], validDirections[randomIndex]) = (validDirections[randomIndex], validDirections[i]);
         }
-        if (IsValidPosition(grid, x, y + yStep, z)) // Y only
+
+        // Try all valid directions until we find an empty spot
+        foreach (Vector3Int dir in validDirections)
         {
-            SwapVoxels(grid, x, y, z, x, y + yStep, z);
-            return;
-        }
-        if (IsValidPosition(grid, x, y, z + zStep)) // Z only
-        {
-            SwapVoxels(grid, x, y, z, x, y, z + zStep);
-            return;
+            int tx = x + dir.x;
+            int ty = y + dir.y;
+            int tz = z + dir.z;
+
+            if (IsValidPosition(grid, tx, ty, tz) &&
+                grid[tx, ty, tz].material == MaterialType.Air)
+            {
+                SwapVoxels(grid, x, y, z, tx, ty, tz);
+                return;
+            }
         }
     }
 
     private bool IsValidPosition(Voxel[,,] grid, int x, int y, int z)
     {
+        // Only check bounds now (material checks are done explicitly in TryMoveSand)
         return x >= 0 && x < grid.GetLength(0) &&
                y >= 0 && y < grid.GetLength(1) &&
-               z >= 0 && z < grid.GetLength(2) &&
-               grid[x, y, z].material == MaterialType.Air;
+               z >= 0 && z < grid.GetLength(2);
     }
 
     private void SwapVoxels(Voxel[,,] grid, int x1, int y1, int z1, int x2, int y2, int z2)
