@@ -1,11 +1,13 @@
+using Unity.Hierarchy;
 using UnityEngine;
 
 public class VoxelManager : MonoBehaviour
 {
     public static VoxelManager Instance { get; private set; }
+    public Vector3 shellCenter { get; private set; }
 
     [Header("Settings")]
-    public int gridSize = 16;
+    public int gridSize = 32;
     public float stepInterval = 0.1f;
     [Range(0.1f, 1f)] public float voxelSize = 1f; // Size control here
 
@@ -28,8 +30,9 @@ public class VoxelManager : MonoBehaviour
     void Start()
     {
         InitializeGrid();
+        shellCenter = new Vector3(gridSize / 2f, gridSize / 2f, gridSize / 2f);
         CreateTerrain();
-        caRules = new CellularAutomataRules();
+        caRules = new CellularAutomataRules(shellCenter);
     }
 
     void Update()
@@ -58,22 +61,38 @@ public class VoxelManager : MonoBehaviour
 
     void CreateTerrain()
     {
-        // Create stone ground
-        for (int x = 0; x < gridSize; x++)
-            for (int z = 0; z < gridSize; z++)
-            {
-                voxelGrid[x, 0, z].material = MaterialType.Stone;
-                if (Random.value > 0.7f) voxelGrid[x, 1, z].material = MaterialType.Stone;
-            }
+        // Create stone sphere shell
+        int radius = 10;
+        float thickness = 3f; // Shell thickness
 
-        // Create sand blocks
-        int sandHeight = gridSize / 2;
+        for (int x = 0; x < gridSize; x++)
+        {
+            for (int y = 0; y < gridSize; y++)
+            {
+                for (int z = 0; z < gridSize; z++)
+                {
+                    // Calculate distance from center
+                    Vector3 voxelPos = new Vector3(x, y, z);
+                    float distance = Vector3.Distance(voxelPos, shellCenter);
+
+                    // Create hollow sphere shell
+                    if (distance <= radius && distance >= radius - thickness)
+                    {
+                        voxelGrid[x, y, z].material = MaterialType.Stone;
+                    }
+                }
+            }
+        }
+
+        // Create sand blocks above the sphere
+        int sandHeight = gridSize-1;
         for (int x = gridSize / 4; x < gridSize * 3 / 4; x++)
+        {
             for (int z = gridSize / 4; z < gridSize * 3 / 4; z++)
             {
-                voxelGrid[x, sandHeight, z].material = MaterialType.Sand;
-                if (Random.value > 0.7f) voxelGrid[x, sandHeight + 1, z].material = MaterialType.Sand;
+                voxelGrid[x, z, sandHeight].material = MaterialType.Sand;
             }
+        }
     }
 
     void UpdateAllVisuals()

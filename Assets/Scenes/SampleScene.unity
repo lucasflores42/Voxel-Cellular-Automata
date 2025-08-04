@@ -455,13 +455,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fc72e366db97684449aac85412181b80, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  gridSize: 32
+  gridSize: 50
   stepInterval: 0.1
-  voxelSize: 0.4
+  voxelSize: 0.32
   sandMaterial: {fileID: 2100000, guid: 53fd1b25fd6d248429a1d3be13d6c84d, type: 2}
   waterMaterial: {fileID: 2100000, guid: 14e74d48c4369b94098c9abf553b8c8e, type: 2}
   stoneMaterial: {fileID: 2100000, guid: c9252ece2c47dde478d7f4cdbf103af3, type: 2}
   lavaMaterial: {fileID: 2100000, guid: 1ac58a208fa3c1d4aa9e3cdaf27cc3da, type: 2}
+  shellCenter: {x: 0, y: 0, z: 0}
 --- !u!4 &996454249
 Transform:
   m_ObjectHideFlags: 0
