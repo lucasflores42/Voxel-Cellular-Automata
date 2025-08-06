@@ -7,6 +7,6 @@ public class Voxel
     public MaterialType material;
     public int health;
     public float temperature;
+    public bool hasMoved;
 
-    // Add any voxel-specific methods here
 }

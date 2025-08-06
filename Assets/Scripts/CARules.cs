@@ -5,6 +5,9 @@ public class CellularAutomataRules
 {
     public void ApplyRules(Voxel[,,] grid)
     {
+        // First reset all movement flags
+        ResetMovementFlags(grid);
+
         // Process bottom-up for proper falling
         for (int y = 1; y < grid.GetLength(1); y++)
         {
@@ -12,11 +15,11 @@ public class CellularAutomataRules
             {
                 for (int z = 0; z < grid.GetLength(2); z++)
                 {
-                    if (grid[x, y, z].material == MaterialType.Sand)
+                    if (grid[x, y, z].material == MaterialType.Sand && !grid[x, y, z].hasMoved)
                     {
                         SandDynamics(grid, x, y, z);
                     }
-                    if (grid[x, y, z].material == MaterialType.Water)
+                    if (grid[x, y, z].material == MaterialType.Water && !grid[x, y, z].hasMoved)
                     {
                         WaterDynamics(grid, x, y, z);
                     }
@@ -24,6 +27,21 @@ public class CellularAutomataRules
             }
         }
     }
+
+    private void ResetMovementFlags(Voxel[,,] grid)
+    {
+        for (int y = 0; y < grid.GetLength(1); y++)
+        {
+            for (int x = 0; x < grid.GetLength(0); x++)
+            {
+                for (int z = 0; z < grid.GetLength(2); z++)
+                {
+                    grid[x, y, z].hasMoved = false;
+                }
+            }
+        }
+    }
+
     private void WaterDynamics(Voxel[,,] grid, int x, int y, int z)
     {
         // Try moving straight down into air first
@@ -31,12 +49,13 @@ public class CellularAutomataRules
             grid[x, y - 1, z].material == MaterialType.Air)
         {
             SwapVoxels(grid, x, y, z, x, y - 1, z);
+            grid[x, y - 1, z].hasMoved = true;
             return;
         }
 
         // If blocked by water below, push it (with recursion limit)
         if (IsValidPosition(grid, x, y - 1, z) &&
-            grid[x, y - 1, z].material == MaterialType.Water)
+            grid[x, y - 1, z].material == MaterialType.Water && grid[x, y - 1, z].hasMoved == true)
         {
             PushWater(grid, x, y - 1, z, new Vector3Int(0, -1, 0), 0);
         }
@@ -46,10 +65,9 @@ public class CellularAutomataRules
     {
         const int maxRecursion = 3;
 
-        if (recursionDepth > maxRecursion)
+        if (recursionDepth > maxRecursion || grid[x, y, z].hasMoved)
             return;
 
-        // First try to move opposite the push direction
         Vector3Int moveDir = pushDirection;
         int nx = x + moveDir.x;
         int ny = y + moveDir.y;
@@ -58,6 +76,7 @@ public class CellularAutomataRules
         if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material == MaterialType.Air)
         {
             SwapVoxels(grid, x, y, z, nx, ny, nz);
+            grid[nx, ny, nz].hasMoved = true;
             return;
         }
 
@@ -74,6 +93,7 @@ public class CellularAutomataRules
             if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material == MaterialType.Air)
             {
                 SwapVoxels(grid, x, y, z, nx, ny, nz);
+                grid[nx, ny, nz].hasMoved = true;
                 return;
             }
         }
@@ -85,7 +105,8 @@ public class CellularAutomataRules
             ny = y + dir.y;
             nz = z + dir.z;
 
-            if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material == MaterialType.Water)
+            if (IsValidPosition(grid, nx, ny, nz) &&
+                grid[nx, ny, nz].material == MaterialType.Water)
             {
                 PushWater(grid, nx, ny, nz, dir, recursionDepth + 1);
             }
@@ -122,7 +143,6 @@ public class CellularAutomataRules
         return perpendicularDirs;
     }
 
-
     private void SandDynamics(Voxel[,,] grid, int x, int y, int z)
     {
         // First try moving straight down
@@ -130,17 +150,18 @@ public class CellularAutomataRules
             grid[x, y - 1, z].material == MaterialType.Air)
         {
             SwapVoxels(grid, x, y, z, x, y - 1, z);
+            grid[x, y - 1, z].hasMoved = true;
             return;
         }
 
-        // 2. If blocked below, try the 4 horizontal directions (prioritizing downward movement)
+        // If blocked below, try the 4 horizontal directions 
         Vector3Int[] directions = {
             new Vector3Int(-1, -1, 0),  // Down-left
             new Vector3Int(1, -1, 0),   // Down-right
             new Vector3Int(0, -1, -1),  // Down-back
             new Vector3Int(0, -1, 1),   // Down-forward
             new Vector3Int(-1, -1, -1), // Down-left-back
-            new Vector3Int(-1, -1, 1),  // Down-left-forward
+            new Vector3Int(-1, -1, 1), // Down-left-forward
             new Vector3Int(1, -1, -1),  // Down-right-back
             new Vector3Int(1, -1, 1)    // Down-right-forward
         };
@@ -156,11 +177,11 @@ public class CellularAutomataRules
                 grid[tx, ty, tz].material == MaterialType.Air)
             {
                 SwapVoxels(grid, x, y, z, tx, ty, tz);
+                grid[tx, ty, tz].hasMoved = true;
                 return;
             }
         }
     }
-
 
     private bool IsValidPosition(Voxel[,,] grid, int x, int y, int z)
     {

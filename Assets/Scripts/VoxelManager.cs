@@ -66,12 +66,10 @@ public class VoxelManager : MonoBehaviour
 
     void CreateTerrain()
     {
-        // Single pass through the grid
         for (int x = 0; x < gridSize; x++)
         {
             for (int z = 0; z < gridSize; z++)
             {
-                // Create stone ground at bottom
                 for (int y = 0; y < gridSize; y++)
                 {
                     int center = gridSize / 2;
