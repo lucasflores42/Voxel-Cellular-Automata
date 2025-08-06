@@ -3,13 +3,6 @@ using UnityEngine;
 
 public class CellularAutomataRules
 {
-    private Vector3 shellCenter;
-
-    public CellularAutomataRules(Vector3 center)
-    {
-        shellCenter = center;
-    }
-
     public void ApplyRules(Voxel[,,] grid)
     {
         // Process bottom-up for proper falling
@@ -21,51 +14,143 @@ public class CellularAutomataRules
                 {
                     if (grid[x, y, z].material == MaterialType.Sand)
                     {
-                        TryMoveSand(grid, x, y, z);
+                        SandDynamics(grid, x, y, z);
+                    }
+                    if (grid[x, y, z].material == MaterialType.Water)
+                    {
+                        WaterDynamics(grid, x, y, z);
                     }
                 }
             }
         }
     }
-
-    private void TryMoveSand(Voxel[,,] grid, int x, int y, int z)
+    private void WaterDynamics(Voxel[,,] grid, int x, int y, int z)
     {
-        Vector3 toCenter = shellCenter - new Vector3(x, y, z);
-
-        // Get all possible movement directions that point toward center
-        List<Vector3Int> validDirections = new List<Vector3Int>();
-
-        // Generate all 26 possible neighbor directions (3D Moore neighborhood)
-        for (int dx = -1; dx <= 1; dx++)
+        // Try moving straight down into air first
+        if (IsValidPosition(grid, x, y - 1, z) &&
+            grid[x, y - 1, z].material == MaterialType.Air)
         {
-            for (int dy = -1; dy <= 1; dy++)
-            {
-                for (int dz = -1; dz <= 1; dz++)
-                {
-                    if (dx == 0 && dy == 0 && dz == 0) continue; // Skip self
+            SwapVoxels(grid, x, y, z, x, y - 1, z);
+            return;
+        }
 
-                    // Only consider directions that move toward center
-                    if (dx * toCenter.x + dy * toCenter.y + dz * toCenter.z > 0)
-                    {
-                        validDirections.Add(new Vector3Int(dx, dy, dz));
-                    }
-                }
+        // If blocked by water below, push it (with recursion limit)
+        if (IsValidPosition(grid, x, y - 1, z) &&
+            grid[x, y - 1, z].material == MaterialType.Water)
+        {
+            PushWater(grid, x, y - 1, z, new Vector3Int(0, -1, 0), 0);
+        }
+    }
+
+    private void PushWater(Voxel[,,] grid, int x, int y, int z, Vector3Int pushDirection, int recursionDepth)
+    {
+        const int maxRecursion = 3;
+
+        if (recursionDepth > maxRecursion)
+            return;
+
+        // First try to move opposite the push direction
+        Vector3Int moveDir = pushDirection;
+        int nx = x + moveDir.x;
+        int ny = y + moveDir.y;
+        int nz = z + moveDir.z;
+
+        if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material == MaterialType.Air)
+        {
+            SwapVoxels(grid, x, y, z, nx, ny, nz);
+            return;
+        }
+
+        // Get perpendicular directions based on push direction
+        List<Vector3Int> perpendicularDirections = GetPerpendicularDirections(pushDirection);
+
+        // Try all perpendicular directions
+        foreach (Vector3Int dir in perpendicularDirections)
+        {
+            nx = x + dir.x;
+            ny = y + dir.y;
+            nz = z + dir.z;
+
+            if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material == MaterialType.Air)
+            {
+                SwapVoxels(grid, x, y, z, nx, ny, nz);
+                return;
             }
         }
 
-        // Shuffle directions to remove any processing order bias
-        for (int i = 0; i < validDirections.Count; i++)
+        // If completely blocked, push all neighboring water in perpendicular directions
+        foreach (Vector3Int dir in perpendicularDirections)
         {
-            int randomIndex = Random.Range(i, validDirections.Count);
-            (validDirections[i], validDirections[randomIndex]) = (validDirections[randomIndex], validDirections[i]);
+            nx = x + dir.x;
+            ny = y + dir.y;
+            nz = z + dir.z;
+
+            if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material == MaterialType.Water)
+            {
+                PushWater(grid, nx, ny, nz, dir, recursionDepth + 1);
+            }
+        }
+    }
+
+    private List<Vector3Int> GetPerpendicularDirections(Vector3Int direction)
+    {
+        List<Vector3Int> perpendicularDirs = new List<Vector3Int>();
+
+        // Handle primary axes
+        if (direction.x != 0) // Pushing along x-axis
+        {
+            perpendicularDirs.Add(new Vector3Int(0, 0, 1));  // Forward
+            perpendicularDirs.Add(new Vector3Int(0, 0, -1)); // Back
+            perpendicularDirs.Add(new Vector3Int(0, 1, 0));  // Up
+            perpendicularDirs.Add(new Vector3Int(0, -1, 0)); // Down
+        }
+        else if (direction.y != 0) // Pushing along y-axis
+        {
+            perpendicularDirs.Add(new Vector3Int(1, 0, 0));  // Right
+            perpendicularDirs.Add(new Vector3Int(-1, 0, 0)); // Left
+            perpendicularDirs.Add(new Vector3Int(0, 0, 1));  // Forward
+            perpendicularDirs.Add(new Vector3Int(0, 0, -1)); // Back
+        }
+        else if (direction.z != 0) // Pushing along z-axis
+        {
+            perpendicularDirs.Add(new Vector3Int(1, 0, 0));  // Right
+            perpendicularDirs.Add(new Vector3Int(-1, 0, 0)); // Left
+            perpendicularDirs.Add(new Vector3Int(0, 1, 0));  // Up
+            perpendicularDirs.Add(new Vector3Int(0, -1, 0)); // Down
         }
 
-        // Try all valid directions until we find an empty spot
-        foreach (Vector3Int dir in validDirections)
+        return perpendicularDirs;
+    }
+
+
+    private void SandDynamics(Voxel[,,] grid, int x, int y, int z)
+    {
+        // First try moving straight down
+        if (IsValidPosition(grid, x, y - 1, z) &&
+            grid[x, y - 1, z].material == MaterialType.Air)
         {
-            int tx = x + dir.x;
-            int ty = y + dir.y;
-            int tz = z + dir.z;
+            SwapVoxels(grid, x, y, z, x, y - 1, z);
+            return;
+        }
+
+        // 2. If blocked below, try the 4 horizontal directions (prioritizing downward movement)
+        Vector3Int[] directions = {
+            new Vector3Int(-1, -1, 0),  // Down-left
+            new Vector3Int(1, -1, 0),   // Down-right
+            new Vector3Int(0, -1, -1),  // Down-back
+            new Vector3Int(0, -1, 1),   // Down-forward
+            new Vector3Int(-1, -1, -1), // Down-left-back
+            new Vector3Int(-1, -1, 1),  // Down-left-forward
+            new Vector3Int(1, -1, -1),  // Down-right-back
+            new Vector3Int(1, -1, 1)    // Down-right-forward
+        };
+
+        for (int i = 0; i < 4; i++)
+        {
+            int randomIndex = Random.Range(1, directions.Length);
+            int tx = x + directions[randomIndex].x;
+            int ty = y + directions[randomIndex].y;
+            int tz = z + directions[randomIndex].z;
 
             if (IsValidPosition(grid, tx, ty, tz) &&
                 grid[tx, ty, tz].material == MaterialType.Air)
@@ -76,9 +161,9 @@ public class CellularAutomataRules
         }
     }
 
+
     private bool IsValidPosition(Voxel[,,] grid, int x, int y, int z)
     {
-        // Only check bounds now (material checks are done explicitly in TryMoveSand)
         return x >= 0 && x < grid.GetLength(0) &&
                y >= 0 && y < grid.GetLength(1) &&
                z >= 0 && z < grid.GetLength(2);

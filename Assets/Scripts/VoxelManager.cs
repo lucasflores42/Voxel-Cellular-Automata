@@ -4,7 +4,6 @@ using UnityEngine;
 public class VoxelManager : MonoBehaviour
 {
     public static VoxelManager Instance { get; private set; }
-    public Vector3 shellCenter { get; private set; }
 
     [Header("Settings")]
     public int gridSize = 32;
@@ -30,9 +29,8 @@ public class VoxelManager : MonoBehaviour
     void Start()
     {
         InitializeGrid();
-        shellCenter = new Vector3(gridSize / 2f, gridSize / 2f, gridSize / 2f);
         CreateTerrain();
-        caRules = new CellularAutomataRules(shellCenter);
+        caRules = new CellularAutomataRules();
     }
 
     void Update()
@@ -49,21 +47,6 @@ public class VoxelManager : MonoBehaviour
     void InitializeGrid()
     {
         voxelGrid = new Voxel[gridSize, gridSize, gridSize];
-        for (int x = 0; x < gridSize; x++)
-            for (int y = 0; y < gridSize; y++)
-                for (int z = 0; z < gridSize; z++)
-                    voxelGrid[x, y, z] = new Voxel()
-                    {
-                        position = new Vector3Int(x, y, z),
-                        material = MaterialType.Air
-                    };
-    }
-
-    void CreateTerrain()
-    {
-        // Create stone sphere shell
-        int radius = 20;
-        float thickness = 2f; // Shell thickness
 
         for (int x = 0; x < gridSize; x++)
         {
@@ -71,26 +54,46 @@ public class VoxelManager : MonoBehaviour
             {
                 for (int z = 0; z < gridSize; z++)
                 {
-                    // Calculate distance from center
-                    Vector3 voxelPos = new Vector3(x, y, z);
-                    float distance = Vector3.Distance(voxelPos, shellCenter);
-
-                    // Create hollow sphere shell
-                    if (distance <= radius && distance >= radius - thickness)
+                    voxelGrid[x, y, z] = new Voxel()
                     {
-                        voxelGrid[x, y, z].material = MaterialType.Stone;
-                    }
+                        position = new Vector3Int(x, y, z),
+                        material = MaterialType.Air
+                    };
                 }
             }
         }
+    }
 
-        // Create sand blocks above the sphere
-        int sandHeight = gridSize-1;
-        for (int x = gridSize / 4; x < gridSize * 3 / 4; x++)
+    void CreateTerrain()
+    {
+        // Single pass through the grid
+        for (int x = 0; x < gridSize; x++)
         {
-            for (int z = gridSize / 4; z < gridSize * 3 / 4; z++)
+            for (int z = 0; z < gridSize; z++)
             {
-                voxelGrid[x, z, sandHeight].material = MaterialType.Sand;
+                // Create stone ground at bottom
+                for (int y = 0; y < gridSize; y++)
+                {
+                    int center = gridSize / 2;
+                    float dist = Mathf.Sqrt(Mathf.Pow(x - center, 2) + Mathf.Pow(z - center, 2));
+
+                    if (y == 0)
+                    {
+                        voxelGrid[x, y, z].material = MaterialType.Stone;
+                    }
+                    else if (y < 4 )
+                    {
+                        voxelGrid[x, y, z].material = MaterialType.Water;
+                    }
+                    else if (y == gridSize-1 && x == gridSize/2 && z == gridSize/2)
+                    {
+                        voxelGrid[x, y, z].material = MaterialType.Water;
+                    }
+                    //if (y < gridSize / 8 && dist > gridSize / 2 - 2)
+                    //{
+                        //voxelGrid[x, y, z].material = MaterialType.Sand; //sand
+                    //}
+                }
             }
         }
     }
