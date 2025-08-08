@@ -1,13 +1,11 @@
 using System.Collections.Generic;
+using NUnit.Framework.Constraints;
 using UnityEngine;
 
 public class CellularAutomataRules
 {
     public void ApplyRules(Voxel[,,] grid)
     {
-        // First reset all movement flags
-        ResetMovementFlags(grid);
-
         // Process bottom-up for proper falling
         for (int y = 1; y < grid.GetLength(1); y++)
         {
@@ -15,11 +13,11 @@ public class CellularAutomataRules
             {
                 for (int z = 0; z < grid.GetLength(2); z++)
                 {
-                    if (grid[x, y, z].material == MaterialType.Sand && !grid[x, y, z].hasMoved)
+                    if (grid[x, y, z].material == MaterialType.Sand)
                     {
                         SandDynamics(grid, x, y, z);
                     }
-                    if (grid[x, y, z].material == MaterialType.Water && !grid[x, y, z].hasMoved)
+                    if (grid[x, y, z].material == MaterialType.Water)
                     {
                         WaterDynamics(grid, x, y, z);
                     }
@@ -28,121 +26,134 @@ public class CellularAutomataRules
         }
     }
 
-    private void ResetMovementFlags(Voxel[,,] grid)
+    /* ************************************************************************************
+     *                                                                                    *
+     *                                   Water Dynamics                                   * 
+     *                                                                                    *
+     ************************************************************************************ */
+    private void WaterDynamics(Voxel[,,] grid, int x, int y, int z)
     {
-        for (int y = 0; y < grid.GetLength(1); y++)
+        // Assuming each voxel has a liquidAmount field (0-1)
+        float currentLiquid = grid[x, y, z].liquidAmount;
+        if (currentLiquid <= 0) return;
+
+        // Rule 1: Flow downward first
+        if (y > 0 && TryFlow(grid, x, y, z, x, y - 1, z, currentLiquid))
         {
-            for (int x = 0; x < grid.GetLength(0); x++)
+            return; // If we flowed down, wait for next frame to flow sideways
+        }
+
+        // Rule 2: Flow sideways (4 directions in 3D)
+        Vector3Int[] sideDirections = {
+        new Vector3Int(-1, 0, 0),  // Left
+        new Vector3Int(1, 0, 0),    // Right
+        new Vector3Int(0, 0, -1),   // Back
+        new Vector3Int(0, 0, 1)     // Forward
+    };
+
+        // Shuffle directions for more natural flow
+        ShuffleDirections(sideDirections);
+
+        foreach (var dir in sideDirections)
+        {
+            int nx = x + dir.x;
+            int ny = y + dir.y;
+            int nz = z + dir.z;
+
+            if (IsValidPosition(grid, nx, ny, nz) &&
+                grid[nx, ny, nz].material != MaterialType.Stone)
             {
-                for (int z = 0; z < grid.GetLength(2); z++)
+                if (TryFlow(grid, x, y, z, nx, ny, nz, currentLiquid))
                 {
-                    grid[x, y, z].hasMoved = false;
+                    // Only flow to one side per frame for more natural behavior
+                    break;
                 }
             }
         }
-    }
 
-    private void WaterDynamics(Voxel[,,] grid, int x, int y, int z)
-    {
-        // Try moving straight down into air first
-        if (IsValidPosition(grid, x, y - 1, z) &&
-            grid[x, y - 1, z].material == MaterialType.Air)
+        // Rule 3: Flow upward if pressurized (liquid > max capacity)
+        const float maxLiquid = 1.0f;
+        if (currentLiquid > maxLiquid && y < grid.GetLength(1) - 1)
         {
-            SwapVoxels(grid, x, y, z, x, y - 1, z);
-            grid[x, y - 1, z].hasMoved = true;
-            return;
-        }
-
-        // If blocked by water below, push it (with recursion limit)
-        if (IsValidPosition(grid, x, y - 1, z) &&
-            grid[x, y - 1, z].material == MaterialType.Water && grid[x, y - 1, z].hasMoved == true)
-        {
-            PushWater(grid, x, y - 1, z, new Vector3Int(0, -1, 0), 0);
-        }
-    }
-
-    private void PushWater(Voxel[,,] grid, int x, int y, int z, Vector3Int pushDirection, int recursionDepth)
-    {
-        const int maxRecursion = 3;
-
-        if (recursionDepth > maxRecursion || grid[x, y, z].hasMoved)
-            return;
-
-        Vector3Int moveDir = pushDirection;
-        int nx = x + moveDir.x;
-        int ny = y + moveDir.y;
-        int nz = z + moveDir.z;
-
-        if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material == MaterialType.Air)
-        {
-            SwapVoxels(grid, x, y, z, nx, ny, nz);
-            grid[nx, ny, nz].hasMoved = true;
-            return;
-        }
-
-        // Get perpendicular directions based on push direction
-        List<Vector3Int> perpendicularDirections = GetPerpendicularDirections(pushDirection);
-
-        // Try all perpendicular directions
-        foreach (Vector3Int dir in perpendicularDirections)
-        {
-            nx = x + dir.x;
-            ny = y + dir.y;
-            nz = z + dir.z;
-
-            if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material == MaterialType.Air)
-            {
-                SwapVoxels(grid, x, y, z, nx, ny, nz);
-                grid[nx, ny, nz].hasMoved = true;
-                return;
-            }
-        }
-
-        // If completely blocked, push all neighboring water in perpendicular directions
-        foreach (Vector3Int dir in perpendicularDirections)
-        {
-            nx = x + dir.x;
-            ny = y + dir.y;
-            nz = z + dir.z;
+            int nx = x;
+            int ny = y + 1; // Up
+            int nz = z;
 
             if (IsValidPosition(grid, nx, ny, nz) &&
-                grid[nx, ny, nz].material == MaterialType.Water)
+                grid[nx, ny, nz].material != MaterialType.Stone)
             {
-                PushWater(grid, nx, ny, nz, dir, recursionDepth + 1);
+                // Calculate overflow
+                float overflow = currentLiquid - maxLiquid;
+                float transferAmount = overflow * 0.5f; // Dampen the upward flow
+
+                // Transfer liquid upward
+                grid[x, y, z].liquidAmount -= transferAmount;
+                grid[nx, ny, nz].liquidAmount += transferAmount;
             }
         }
     }
 
-    private List<Vector3Int> GetPerpendicularDirections(Vector3Int direction)
+    private bool TryFlow(Voxel[,,] grid, int x1, int y1, int z1, int x2, int y2, int z2, float sourceLiquid)
     {
-        List<Vector3Int> perpendicularDirs = new List<Vector3Int>();
+        Voxel source = grid[x1, y1, z1];
+        Voxel dest = grid[x2, y2, z2];
 
-        // Handle primary axes
-        if (direction.x != 0) // Pushing along x-axis
+        // Can't flow into solids
+        if (dest.material == MaterialType.Stone) return false;
+
+        // Special case: if destination is air, do a full swap
+        if (dest.material == MaterialType.Air)
         {
-            perpendicularDirs.Add(new Vector3Int(0, 0, 1));  // Forward
-            perpendicularDirs.Add(new Vector3Int(0, 0, -1)); // Back
-            perpendicularDirs.Add(new Vector3Int(0, 1, 0));  // Up
-            perpendicularDirs.Add(new Vector3Int(0, -1, 0)); // Down
-        }
-        else if (direction.y != 0) // Pushing along y-axis
-        {
-            perpendicularDirs.Add(new Vector3Int(1, 0, 0));  // Right
-            perpendicularDirs.Add(new Vector3Int(-1, 0, 0)); // Left
-            perpendicularDirs.Add(new Vector3Int(0, 0, 1));  // Forward
-            perpendicularDirs.Add(new Vector3Int(0, 0, -1)); // Back
-        }
-        else if (direction.z != 0) // Pushing along z-axis
-        {
-            perpendicularDirs.Add(new Vector3Int(1, 0, 0));  // Right
-            perpendicularDirs.Add(new Vector3Int(-1, 0, 0)); // Left
-            perpendicularDirs.Add(new Vector3Int(0, 1, 0));  // Up
-            perpendicularDirs.Add(new Vector3Int(0, -1, 0)); // Down
+            // Complete swap of the voxels
+            SwapVoxels(grid, x1, y1, z1, x2, y2, z2);
+            return true;
         }
 
-        return perpendicularDirs;
+        // For water-to-water flow, only flow if destination has less liquid
+        if (dest.material == MaterialType.Water && dest.liquidAmount >= source.liquidAmount)
+            return false;
+
+        // Calculate flow amount (simplified)
+        float flowAmount = (source.liquidAmount - dest.liquidAmount) * 0.5f;
+        flowAmount = Mathf.Min(flowAmount, source.liquidAmount); // Don't over-transfer
+
+        // Apply the flow
+        source.liquidAmount -= flowAmount;
+        dest.liquidAmount += flowAmount;
+
+        // Ensure the destination becomes water if it receives any liquid
+        if (dest.liquidAmount > 0)
+        {
+            dest.material = MaterialType.Water;
+        }
+
+        // If source is now empty, turn it back to air
+        if (source.liquidAmount <= 0)
+        {
+            source.material = MaterialType.Air;
+            source.liquidAmount = 0;
+        }
+
+        return true;
     }
 
+    private void ShuffleDirections(Vector3Int[] directions)
+    {
+        // Fisher-Yates shuffle
+        for (int i = directions.Length - 1; i > 0; i--)
+        {
+            int j = Random.Range(0, i + 1);
+            Vector3Int temp = directions[i];
+            directions[i] = directions[j];
+            directions[j] = temp;
+        }
+    }
+
+    /* ************************************************************************************
+     *                                                                                    *
+     *                                   Sand Dynamics                                    * 
+     *                                                                                    *
+     ************************************************************************************ */
     private void SandDynamics(Voxel[,,] grid, int x, int y, int z)
     {
         // First try moving straight down
@@ -150,7 +161,6 @@ public class CellularAutomataRules
             grid[x, y - 1, z].material == MaterialType.Air)
         {
             SwapVoxels(grid, x, y, z, x, y - 1, z);
-            grid[x, y - 1, z].hasMoved = true;
             return;
         }
 
@@ -177,7 +187,6 @@ public class CellularAutomataRules
                 grid[tx, ty, tz].material == MaterialType.Air)
             {
                 SwapVoxels(grid, x, y, z, tx, ty, tz);
-                grid[tx, ty, tz].hasMoved = true;
                 return;
             }
         }

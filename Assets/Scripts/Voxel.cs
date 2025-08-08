@@ -7,6 +7,5 @@ public class Voxel
     public MaterialType material;
     public int health;
     public float temperature;
-    public bool hasMoved;
-
+    public float liquidAmount; // 0-1 representing how full the cell is
 }
