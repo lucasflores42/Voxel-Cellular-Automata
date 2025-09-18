@@ -76,7 +76,21 @@ public class CellularAutomataRules
 
                 if (IsValidPosition(grid, nx, ny, nz) && grid[x, y, z].liquidAmount > grid[nx, ny, nz].liquidAmount)
                 {
-                    TryFlow(grid, x, y, z, nx, ny, nz, currentLiquid / num);
+                    float flowAmount = (grid[x, y, z].liquidAmount - grid[nx, ny, nz].liquidAmount) / num;
+
+                    grid[x, y, z].liquidAmount -= flowAmount;
+                    grid[nx, ny, nz].liquidAmount += flowAmount;
+
+                    // Ensure the destination becomes water if it receives any liquid
+                    if (grid[nx, ny, nz].liquidAmount > 0)
+                    {
+                        grid[nx, ny, nz].material = MaterialType.Water;
+                    }
+                    // If source is now empty, turn it back to air
+                    if (grid[x, y, z].liquidAmount <= 0)
+                    {
+                        grid[x, y, z].material = MaterialType.Air;
+                    }
                 }
             }
         }
@@ -108,36 +122,6 @@ public class CellularAutomataRules
                 }
             }
         }
-    }
-
-    private bool TryFlow(Voxel[,,] grid, int x1, int y1, int z1, int x2, int y2, int z2, float sourceLiquid)
-    {
-        Voxel source = grid[x1, y1, z1];
-        Voxel dest = grid[x2, y2, z2];
-
-        // Solid
-        if (dest.material == MaterialType.Stone) return false;
-
-        // Water
-        if (dest.material != MaterialType.Stone)
-        {
-            float flowAmount = (source.liquidAmount - dest.liquidAmount) / 2;
-
-            source.liquidAmount -= flowAmount;
-            dest.liquidAmount += flowAmount;
-
-            // Ensure the destination becomes water if it receives any liquid
-            if (dest.liquidAmount > 0)
-            {
-                dest.material = MaterialType.Water;
-            }
-            // If source is now empty, turn it back to air
-            if (source.liquidAmount <= 0)
-            {
-                source.material = MaterialType.Air;
-            }
-        }
-        return true;
     }
 
     private void ShuffleDirections(Vector3Int[] directions)
