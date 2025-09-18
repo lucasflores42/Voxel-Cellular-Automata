@@ -79,7 +79,7 @@ public class VoxelManager : MonoBehaviour
                     {
                         voxelGrid[x, y, z].material = MaterialType.Stone;
                     }
-                    else if (y < 4 )
+                    else if (y < 4 && x < gridSize/2)
                     {
                         voxelGrid[x, y, z].material = MaterialType.Water;
                         voxelGrid[x, y, z].liquidAmount = 1.0f;

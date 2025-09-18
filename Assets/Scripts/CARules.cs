@@ -33,26 +33,36 @@ public class CellularAutomataRules
      ************************************************************************************ */
     private void WaterDynamics(Voxel[,,] grid, int x, int y, int z)
     {
-        // Assuming each voxel has a liquidAmount field (0-1)
         float currentLiquid = grid[x, y, z].liquidAmount;
-        if (currentLiquid <= 0) return;
 
-        // Rule 1: Flow downward first
-        if (y > 0 && TryFlow(grid, x, y, z, x, y - 1, z, currentLiquid))
+        // Rule 1: Flow downward first (gravity)
+        if (y > 0 && grid[x, y-1, z].material == MaterialType.Air)
         {
-            return; // If we flowed down, wait for next frame to flow sideways
+            TryFlow(grid, x, y, z, x, y - 1, z, currentLiquid);
         }
 
-        // Rule 2: Flow sideways (4 directions in 3D)
-        Vector3Int[] sideDirections = {
-        new Vector3Int(-1, 0, 0),  // Left
-        new Vector3Int(1, 0, 0),    // Right
-        new Vector3Int(0, 0, -1),   // Back
-        new Vector3Int(0, 0, 1)     // Forward
-    };
+        // Rule 2: Flow sideways
+        Vector3Int[] sideDirections;
 
-        // Shuffle directions for more natural flow
-        ShuffleDirections(sideDirections);
+        sideDirections = new Vector3Int[] {
+            new Vector3Int(-1, 0, 0),  // Left
+            new Vector3Int(1, 0, 0),    // Right
+            new Vector3Int(0, 0, -1),   // Back
+            new Vector3Int(0, 0, 1)     // Forward
+            };
+
+        int num = 0;
+        foreach (var dir in sideDirections)
+        {
+            int nx = x + dir.x;
+            int ny = y + dir.y;
+            int nz = z + dir.z;
+
+            if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material == MaterialType.Air)
+            {
+                num += 1;
+            }
+        }
 
         foreach (var dir in sideDirections)
         {
@@ -60,14 +70,9 @@ public class CellularAutomataRules
             int ny = y + dir.y;
             int nz = z + dir.z;
 
-            if (IsValidPosition(grid, nx, ny, nz) &&
-                grid[nx, ny, nz].material != MaterialType.Stone)
+            if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material != MaterialType.Stone)
             {
-                if (TryFlow(grid, x, y, z, nx, ny, nz, currentLiquid))
-                {
-                    // Only flow to one side per frame for more natural behavior
-                    break;
-                }
+                TryFlow(grid, x, y, z, nx, ny, nz, currentLiquid);
             }
         }
 
@@ -79,16 +84,9 @@ public class CellularAutomataRules
             int ny = y + 1; // Up
             int nz = z;
 
-            if (IsValidPosition(grid, nx, ny, nz) &&
-                grid[nx, ny, nz].material != MaterialType.Stone)
+            if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material != MaterialType.Stone)
             {
-                // Calculate overflow
-                float overflow = currentLiquid - maxLiquid;
-                float transferAmount = overflow * 0.5f; // Dampen the upward flow
-
-                // Transfer liquid upward
-                grid[x, y, z].liquidAmount -= transferAmount;
-                grid[nx, ny, nz].liquidAmount += transferAmount;
+                TryFlow(grid, x, y, z, nx, ny, nz, currentLiquid);
             }
         }
     }
@@ -98,42 +96,38 @@ public class CellularAutomataRules
         Voxel source = grid[x1, y1, z1];
         Voxel dest = grid[x2, y2, z2];
 
-        // Can't flow into solids
+        // Solid
         if (dest.material == MaterialType.Stone) return false;
 
-        // Special case: if destination is air, do a full swap
+        // Air
         if (dest.material == MaterialType.Air)
         {
-            // Complete swap of the voxels
             SwapVoxels(grid, x1, y1, z1, x2, y2, z2);
             return true;
         }
 
-        // For water-to-water flow, only flow if destination has less liquid
-        if (dest.material == MaterialType.Water && dest.liquidAmount >= source.liquidAmount)
-            return false;
+        // Water
+        if (dest.material == MaterialType.Water)
+        { 
 
-        // Calculate flow amount (simplified)
-        float flowAmount = (source.liquidAmount - dest.liquidAmount) * 0.5f;
-        flowAmount = Mathf.Min(flowAmount, source.liquidAmount); // Don't over-transfer
+            float flowAmount = (source.liquidAmount - 1);
 
-        // Apply the flow
-        source.liquidAmount -= flowAmount;
-        dest.liquidAmount += flowAmount;
+            source.liquidAmount -= flowAmount;
+            dest.liquidAmount += flowAmount;
 
-        // Ensure the destination becomes water if it receives any liquid
-        if (dest.liquidAmount > 0)
-        {
-            dest.material = MaterialType.Water;
+            // Ensure the destination becomes water if it receives any liquid
+            if (dest.liquidAmount > 0)
+            {
+                dest.material = MaterialType.Water;
+            }
+
+            // If source is now empty, turn it back to air
+            if (source.liquidAmount <= 0)
+            {
+                source.material = MaterialType.Air;
+                source.liquidAmount = 0;
+            }
         }
-
-        // If source is now empty, turn it back to air
-        if (source.liquidAmount <= 0)
-        {
-            source.material = MaterialType.Air;
-            source.liquidAmount = 0;
-        }
-
         return true;
     }
 
