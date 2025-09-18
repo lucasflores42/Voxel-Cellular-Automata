@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using NUnit.Framework.Constraints;
+using NUnit.Framework.Internal;
 using UnityEngine;
+using static Unity.VisualScripting.Member;
 
 public class CellularAutomataRules
 {
@@ -38,7 +40,7 @@ public class CellularAutomataRules
         // Rule 1: Flow downward first (gravity)
         if (y > 0 && grid[x, y-1, z].material == MaterialType.Air)
         {
-            TryFlow(grid, x, y, z, x, y - 1, z, currentLiquid);
+            SwapVoxels(grid, x, y, z, x, y-1, z);
         }
 
         // Rule 2: Flow sideways
@@ -58,35 +60,52 @@ public class CellularAutomataRules
             int ny = y + dir.y;
             int nz = z + dir.z;
 
-            if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material == MaterialType.Air)
+            if (IsValidPosition(grid, nx, ny, nz) && grid[x, y, z].liquidAmount > grid[nx, ny, nz].liquidAmount)
             {
                 num += 1;
             }
         }
 
-        foreach (var dir in sideDirections)
+        if (num > 0)
         {
-            int nx = x + dir.x;
-            int ny = y + dir.y;
-            int nz = z + dir.z;
-
-            if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material != MaterialType.Stone)
+            foreach (var dir in sideDirections)
             {
-                TryFlow(grid, x, y, z, nx, ny, nz, currentLiquid);
+                int nx = x + dir.x;
+                int ny = y + dir.y;
+                int nz = z + dir.z;
+
+                if (IsValidPosition(grid, nx, ny, nz) && grid[x, y, z].liquidAmount > grid[nx, ny, nz].liquidAmount)
+                {
+                    TryFlow(grid, x, y, z, nx, ny, nz, currentLiquid / num);
+                }
             }
         }
-
-        // Rule 3: Flow upward if pressurized (liquid > max capacity)
-        const float maxLiquid = 1.0f;
-        if (currentLiquid > maxLiquid && y < grid.GetLength(1) - 1)
+        else
         {
-            int nx = x;
-            int ny = y + 1; // Up
-            int nz = z;
-
-            if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material != MaterialType.Stone)
+            // Rule 3: Flow upward if pressurized (liquid > max capacity)
+            if (currentLiquid > 1 && y < grid.GetLength(1) - 1)
             {
-                TryFlow(grid, x, y, z, nx, ny, nz, currentLiquid);
+                int nx = x;
+                int ny = y + 1; // Up
+                int nz = z;
+
+                if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material != MaterialType.Stone)
+                {
+                    float flowAmount = (grid[x, y, z].liquidAmount - 1);
+                    grid[x, y, z].liquidAmount -= flowAmount;
+                    grid[nx, ny, nz].liquidAmount += flowAmount;
+
+                    // Ensure the destination becomes water if it receives any liquid
+                    if (grid[nx, ny, nz].liquidAmount > 0)
+                    {
+                        grid[nx, ny, nz].material = MaterialType.Water;
+                    }
+                    // If source is now empty, turn it back to air
+                    if (grid[x, y, z].liquidAmount <= 0)
+                    {
+                        grid[x, y, z].material = MaterialType.Air;
+                    }
+                }
             }
         }
     }
@@ -99,18 +118,10 @@ public class CellularAutomataRules
         // Solid
         if (dest.material == MaterialType.Stone) return false;
 
-        // Air
-        if (dest.material == MaterialType.Air)
-        {
-            SwapVoxels(grid, x1, y1, z1, x2, y2, z2);
-            return true;
-        }
-
         // Water
-        if (dest.material == MaterialType.Water)
-        { 
-
-            float flowAmount = (source.liquidAmount - 1);
+        if (dest.material != MaterialType.Stone)
+        {
+            float flowAmount = (source.liquidAmount - dest.liquidAmount) / 2;
 
             source.liquidAmount -= flowAmount;
             dest.liquidAmount += flowAmount;
@@ -120,12 +131,10 @@ public class CellularAutomataRules
             {
                 dest.material = MaterialType.Water;
             }
-
             // If source is now empty, turn it back to air
             if (source.liquidAmount <= 0)
             {
                 source.material = MaterialType.Air;
-                source.liquidAmount = 0;
             }
         }
         return true;

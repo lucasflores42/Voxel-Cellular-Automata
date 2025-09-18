@@ -57,7 +57,8 @@ public class VoxelManager : MonoBehaviour
                     voxelGrid[x, y, z] = new Voxel()
                     {
                         position = new Vector3Int(x, y, z),
-                        material = MaterialType.Air
+                        material = MaterialType.Air,
+                        liquidAmount = 0
                     };
                 }
             }
@@ -78,6 +79,7 @@ public class VoxelManager : MonoBehaviour
                     if (y == 0)
                     {
                         voxelGrid[x, y, z].material = MaterialType.Stone;
+                        voxelGrid[x, y, z].liquidAmount = 100.0f;
                     }
                     else if (y < 4 && x < gridSize/2)
                     {
@@ -91,7 +93,8 @@ public class VoxelManager : MonoBehaviour
                     }
                     if (y < gridSize / 2 && x == 0 || z == 0 || x == gridSize-1 || z == gridSize-1)
                     {
-                        voxelGrid[x, y, z].material = MaterialType.Stone; 
+                        voxelGrid[x, y, z].material = MaterialType.Stone;
+                        voxelGrid[x, y, z].liquidAmount = 100.0f;
                     }
                 }
             }
