@@ -38,22 +38,42 @@ public class CellularAutomataRules
         float currentLiquid = grid[x, y, z].liquidAmount;
 
         // Rule 1: Flow downward first (gravity)
-        if (y > 0 && grid[x, y-1, z].material == MaterialType.Air)
+        // air
+        if (y > 0 && (grid[x, y - 1, z].material == MaterialType.Air))
         {
-            SwapVoxels(grid, x, y, z, x, y-1, z);
+            SwapVoxels(grid, x, y, z, x, y - 1, z);
+            return;
+        }
+        // water
+        else if (grid[x, y - 1, z].material == MaterialType.Water &&
+             grid[x, y, z].liquidAmount > grid[x, y - 1, z].liquidAmount)
+        {
+            // Equalize the water amounts between current and bottom voxel
+            float flow = 1 - grid[x, y - 1, z].liquidAmount;
+
+            grid[x, y, z].liquidAmount -= flow;
+            grid[x, y - 1, z].liquidAmount += flow;
+
+            if (grid[x, y, z].liquidAmount < 0.5)
+            {
+                grid[x, y, z].material = MaterialType.Air;
+            }
+
+            return;
         }
 
         // Rule 2: Flow sideways
-        Vector3Int[] sideDirections;
+        Vector3Int[] sideDirections = {
+        new Vector3Int(-1, 0, 0),  // Left
+        new Vector3Int(1, 0, 0),    // Right
+        new Vector3Int(0, 0, -1),   // Back
+        new Vector3Int(0, 0, 1)     // Forward
+    };
 
-        sideDirections = new Vector3Int[] {
-            new Vector3Int(-1, 0, 0),  // Left
-            new Vector3Int(1, 0, 0),    // Right
-            new Vector3Int(0, 0, -1),   // Back
-            new Vector3Int(0, 0, 1)     // Forward
-            };
-
+        // First pass: calculate total difference and count neighbors
         int num = 0;
+        float totalDifference = 0;
+
         foreach (var dir in sideDirections)
         {
             int nx = x + dir.x;
@@ -62,60 +82,61 @@ public class CellularAutomataRules
 
             if (IsValidPosition(grid, nx, ny, nz) && grid[x, y, z].liquidAmount > grid[nx, ny, nz].liquidAmount)
             {
-                num += 1;
+                num++;
+                totalDifference += grid[x, y, z].liquidAmount - grid[nx, ny, nz].liquidAmount;
             }
         }
 
         if (num > 0)
         {
+            // Second pass: apply flow based on original values
             foreach (var dir in sideDirections)
             {
                 int nx = x + dir.x;
                 int ny = y + dir.y;
                 int nz = z + dir.z;
 
-                if (IsValidPosition(grid, nx, ny, nz) && grid[x, y, z].liquidAmount > grid[nx, ny, nz].liquidAmount)
+                if (IsValidPosition(grid, nx, ny, nz) && currentLiquid > grid[nx, ny, nz].liquidAmount)
                 {
-                    float flowAmount = (grid[x, y, z].liquidAmount - grid[nx, ny, nz].liquidAmount) / num;
+                    float neighborDiff = currentLiquid - grid[nx, ny, nz].liquidAmount;
+                    float flowAmount = (neighborDiff / totalDifference) * (currentLiquid - 0.5f) * 0.5f;
 
                     grid[x, y, z].liquidAmount -= flowAmount;
                     grid[nx, ny, nz].liquidAmount += flowAmount;
 
-                    // Ensure the destination becomes water if it receives any liquid
-                    if (grid[nx, ny, nz].liquidAmount > 0)
+                    if (grid[nx, ny, nz].liquidAmount >= 0.5)
                     {
                         grid[nx, ny, nz].material = MaterialType.Water;
                     }
-                    // If source is now empty, turn it back to air
-                    if (grid[x, y, z].liquidAmount <= 0)
-                    {
-                        grid[x, y, z].material = MaterialType.Air;
-                    }
                 }
+            }
+
+            // Check source emptiness after all flows
+            if (grid[x, y, z].liquidAmount < 0.5)
+            {
+                grid[x, y, z].material = MaterialType.Air;
             }
         }
         else
         {
-            // Rule 3: Flow upward if pressurized (liquid > max capacity)
+            // Rule 3: Flow upward if pressurized
             if (currentLiquid > 1 && y < grid.GetLength(1) - 1)
             {
                 int nx = x;
-                int ny = y + 1; // Up
+                int ny = y + 1;
                 int nz = z;
 
                 if (IsValidPosition(grid, nx, ny, nz) && grid[nx, ny, nz].material != MaterialType.Stone)
                 {
-                    float flowAmount = (grid[x, y, z].liquidAmount - 1);
+                    float flowAmount = (currentLiquid - 1);
                     grid[x, y, z].liquidAmount -= flowAmount;
                     grid[nx, ny, nz].liquidAmount += flowAmount;
 
-                    // Ensure the destination becomes water if it receives any liquid
-                    if (grid[nx, ny, nz].liquidAmount > 0)
+                    if (grid[nx, ny, nz].liquidAmount >= 0.5)
                     {
                         grid[nx, ny, nz].material = MaterialType.Water;
                     }
-                    // If source is now empty, turn it back to air
-                    if (grid[x, y, z].liquidAmount <= 0)
+                    if (grid[x, y, z].liquidAmount < 0.5)
                     {
                         grid[x, y, z].material = MaterialType.Air;
                     }
