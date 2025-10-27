@@ -20,11 +20,12 @@ function initialize_particles()
     particles = Vector{Particle}(undef, num_particles)
     
     for i in 1:num_particles
-        pos = [rand() * 0.2, rand() * 0.2, rand() * 0.5]  # Only bottom half
+        pos = [rand() * 0.2, rand() * 0.2, rand() * 0.5]  
+        vel = [rand() * 0.2, rand() * 0.2, rand() * 0.0] 
         particles[i] = Particle(
             pos,
-            [0.0, 0.0, 0.0],    # velocity
-            [0.0, 0.0, -10.0],  # acceleration
+            vel,    # velocity
+            [0.0, 0.0, 0.0],  # acceleration
             1000.0,             # density
             0.0,                # pressure
             10.0,                # mass
@@ -144,27 +145,48 @@ function calculate_forces!(particles)
         if particles[i].material == "sand"
             
             # Gravity 
-            Fi_gravity = particles[i].mass * [0.0, 0.0, -10.0]
+            Fi_gravity = particles[i].mass * [0.0, 0.0, -0.0]
             
             # Total forces 
             Fi = Fi_gravity
-            
+
+            # elastic colision with restitution
+            # m1 v1 + m2 v2 = m1 v1' + m2 v2'
+            # C = |v2' - v1'|/|v2 - v1|
+            # v1 new = v1 + (1+C)*m2/(m1+m2) * (v2-v1) if dist < radius 1 + radius 2 
+            # separate space in grid and only see neighbors
+
+            for j in 1:length(particles)
+                r_vec = particles[i].position - particles[j].position
+                r = norm(r_vec)
+
+                R1 = R2 = 0.02  # radius of sand particle
+                if r < R1 + R2 && r > 0.0001
+
+                    x1 = particles[i].position
+                    x2 = particles[j].position
+                    v1 = particles[i].velocity
+                    v2 = particles[j].velocity
+                    m1 = particles[i].mass
+                    m2 = particles[j].mass
+ 
+                    normal = (x1 - x2) / r
+                    relative_vel_dot = dot(v1 - v2, normal)
+
+                    dv1 = - (1 + restitution_coefficient) * m2 / (m1 + m2) * relative_vel_dot * normal
+                    particles[i].velocity .+= dv1
+
+                    #dv2 = - (1 + restitution_coefficient) * m1 / (m1 + m2) * dot(v2 - v1, x2 - x1) * (x2 - x1)
+                    #particles[j].velocity .+= dv2
+                    #particles[i].position .+= particles[i].velocity .* dt
+
+                    @printf "pos=%s vel=%s r=%.3f dv1=%s\n" string(particles[i].position) string(particles[i].velocity) r string(dv1)
+                end
+            end
+
             # Update velocity and position
             particles[i].velocity .+= (Fi / particles[i].mass) .* dt
             particles[i].position .+= particles[i].velocity .* dt
-
-            # if new position too close to other particles
-            # change new position to the side
-            # if no side available reset to original position
-
-            for j in 1:length(particles)
-                r = abs(particles[i].position[3] - particles[j].position[3])
-                if particles[i].position[1] == particles[j].position[1] && particles[i].position[2] == particles[j].position[2] && r <= 0.05
-                    particles[j].position
-
-                    continue
-                end
-            end
         end
     end
 end
@@ -239,15 +261,16 @@ end
 # -----------------------------------------------------------------------------
 #                           SPH Parameters
 # -----------------------------------------------------------------------------
-const num_particles = 1000
+const num_particles = 300
 const dt = 0.01
 const box_size = 1.0
-const damping = 0.8
+const damping = 1.0
 
 const smoothing_length = 0.1
 const stiff_coef = 100.0
 const target_density = 1000.0
 const viscosity_coef = 0.2
+const restitution_coefficient = 0.0
 
 # -----------------------------------------------------------------------------
 #                       Main Simulation
