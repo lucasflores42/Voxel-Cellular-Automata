@@ -11,6 +11,7 @@ mutable struct Particle
     pressure::Float64
     mass::Float64
     material::String
+    radius::Float64
 end
 
 # -----------------------------------------------------------------------------
@@ -20,16 +21,17 @@ function initialize_particles()
     particles = Vector{Particle}(undef, num_particles)
     
     for i in 1:num_particles
-        pos = [0.1, 0.1, 0.1*i]  
-        vel = [rand() * 0.0, rand() * 0.0, rand() * 0.0] 
+        pos = [0.2*rand(), 0.2*rand(), 0.5*rand()]  
+        vel = [rand() * 0.0, rand() * 0.0, -rand()*0.0] 
         particles[i] = Particle(
             pos,
             vel,    # velocity
             [0.0, 0.0, gravity],  # acceleration
             1000.0,             # density
             0.0,                # pressure
-            10.0,                # mass
-            "sand"             # material 
+            1.0,                # mass
+            "sand",             # material 
+            0.02                # radius
         )
     end
     
@@ -53,22 +55,21 @@ end
 # -----------------------------------------------------------------------------
 #                       Density and Pressure Calculation
 # -----------------------------------------------------------------------------
-function calculate_density_pressure!(particles)
+function calculate_density_pressure!(particle1,particles)
 
-    for i in 1:length(particles)
-        particles[i].density = 0.0
+    particle1.density = 0.0
+    
+    # Calculate density
+    for j in 1:length(particles)
+        r_vec = particle1.position - particles[j].position
+        r = norm(r_vec)
         
-        # Calculate density
-        for j in 1:length(particles)
-            r_vec = particles[i].position - particles[j].position
-            r = norm(r_vec)
-            
-            particles[i].density += particles[j].mass * kernel(r, smoothing_length)
-        end
-        
-        # Calculate pressure 
-        particles[i].pressure = stiff_coef * ((particles[i].density/target_density)^7 - 1)
+        particle1.density += particles[j].mass * kernel(r, smoothing_length)
     end
+    
+    # Calculate pressure 
+    particle1.pressure = stiff_coef * ((particle1.density/target_density)^7 - 1)
+
 end
 
 
@@ -76,9 +77,11 @@ end
 #                       Force Calculation 
 # -----------------------------------------------------------------------------
 function calculate_forces!(particles)
-    
+
     for i in 1:length(particles)
         if particles[i].material == "water"
+
+            calculate_density_pressure!(particles[i],particles)
 
             grad_pressure = zeros(3)
             laplacian_velocity = zeros(3)
@@ -149,42 +152,63 @@ function calculate_forces!(particles)
             
             # Total forces 
             Fi = Fi_gravity
+
             particles[i].velocity .+= (Fi / particles[i].mass) .* dt
-
-            # elastic colision with restitution
-            # m1 v1 + m2 v2 = m1 v1' + m2 v2'
-            # C = |v2' - v1'|/|v2 - v1|
-            # v1 new = v1 + (1+C)*m2/(m1+m2) * (v2-v1) if dist < radius 1 + radius 2 
-            # separate space in grid and only see neighbors
-
-            for j in 1:length(particles)
-                r_vec = particles[i].position - particles[j].position
-                r = norm(r_vec)
-
-                R1 = R2 = 0.02  # radius of sand particle
-                if r < R1 + R2 && r >= 0.000001
-
-                    x1 = particles[i].position
-                    x2 = particles[j].position
-                    v1 = particles[i].velocity
-                    v2 = particles[j].velocity
-                    m1 = particles[i].mass
-                    m2 = particles[j].mass
- 
-                    normal = (x1 - x2) / r
-                    relative_vel_dot = dot(v1 - v2, normal)
-
-                    dv1 = - (1 + restitution_coefficient) * m2 / (m1 + m2) * relative_vel_dot * normal
-                    particles[i].velocity .+= dv1
-                    particles[i].position .+= (R1 + R2 - r) * normal 
-                    
-                    @printf "pos=%s vel=%s r=%.3f\n" string(particles[i].position) string(particles[i].velocity) r 
-                end
+            
+            for j in i+1:length(particles)
+                calculate_colision!(particles[i],particles[j])
             end
-
-            particles[i].position .+= particles[i].velocity .* dt
-
         end
+    end
+
+    calculate_positions!(particles)
+end
+# -----------------------------------------------------------------------------
+#                           Calculate colisions
+# -----------------------------------------------------------------------------
+function calculate_colision!(particle1,particle2)
+
+    # elastic colision with restitution
+    # m1 v1 + m2 v2 = m1 v1' + m2 v2'
+    # C = |v2' - v1'|/|v2 - v1|
+
+    r_vec = particle1.position - particle2.position
+    r = norm(r_vec)
+
+    if r < particle1.radius + particle2.radius && r >= 0.0001
+
+        x1 = particle1.position
+        x2 = particle2.position
+        v1 = particle1.velocity
+        v2 = particle2.velocity
+        m1 = particle1.mass
+        m2 = particle2.mass
+
+        normal = (x1 - x2) / r
+        particle1.position .+= (particle1.radius + particle2.radius - r) * normal /2
+        particle2.position .-= (particle1.radius + particle2.radius - r) * normal /2
+
+        r = particle1.radius + particle2.radius
+        dv1 = - (1 + restitution_coefficient) * m2 / (m1 + m2) * dot(v1 - v2, x1 - x2) * (x1 - x2) / r^2
+        dv2 = - (1 + restitution_coefficient) * m1 / (m1 + m2) * dot(v2 - v1, x2 - x1) * (x2 - x1) / r^2
+        particle1.velocity .+= dv1
+        particle2.velocity .+= dv2
+
+        horizontal_damping = 0.01 
+        particle1.velocity[1] *= horizontal_damping  
+        particle1.velocity[2] *= horizontal_damping  
+        particle2.velocity[1] *= horizontal_damping  
+        particle2.velocity[2] *= horizontal_damping 
+
+        #@printf "i=%d pos=%s vel=%s r=%.3f\n" i string(particles[i].position) string(particles[i].velocity) r 
+    end
+end
+# -----------------------------------------------------------------------------
+#                           Calculate positions
+# -----------------------------------------------------------------------------
+function calculate_positions!(particles)
+    for i in 1:length(particles)
+        particles[i].position .+= particles[i].velocity * dt
     end
 end
 
@@ -195,30 +219,30 @@ function apply_boundary_conditions!(particles)
     
     for p in particles
         # X boundaries
-        if p.position[1] < 0.0
-            p.position[1] = 0.0
-            p.velocity .*= -damping  
-        elseif p.position[1] > box_size
-            p.position[1] = box_size
-            p.velocity .*= -damping  
+        if p.position[1] < p.radius
+            p.position[1] = p.radius
+            p.velocity[1] *= -damping  
+        elseif p.position[1] > box_size - p.radius
+            p.position[1] = box_size - p.radius
+            p.velocity[1] *= -damping  
         end
         
         # Y boundaries
-        if p.position[2] < 0.0
-            p.position[2] = 0.0
-            p.velocity .*= -damping  
-        elseif p.position[2] > box_size
-            p.position[2] = box_size
-            p.velocity .*= -damping  
+        if p.position[2] < p.radius
+            p.position[2] = p.radius
+            p.velocity[2] *= -damping  
+        elseif p.position[2] > box_size - p.radius
+            p.position[2] = box_size - p.radius
+            p.velocity[2] *= -damping  
         end
         
         # Z boundaries 
-        if p.position[3] < 0.0
-            p.position[3] = 0.0
-            p.velocity .*= -damping  
-        elseif p.position[3] > box_size
-            p.position[3] = box_size
-            p.velocity .*= -damping  
+        if p.position[3] < p.radius
+            p.position[3] = p.radius
+            p.velocity[3] *= -damping  
+        elseif p.position[3] > box_size - p.radius
+            p.position[3] = box_size - p.radius
+            p.velocity[3] *= -damping  
         end
     end
 end
@@ -228,7 +252,6 @@ end
 #                       Main Simulation Step
 # -----------------------------------------------------------------------------
 function simulate_step!(particles)
-    #calculate_density_pressure!(particles)
     calculate_forces!(particles)
     apply_boundary_conditions!(particles)
 end
@@ -241,9 +264,16 @@ function visualize_sph(particles, step)
     y = [p.position[2] for p in particles]
     z = [p.position[3] for p in particles]
     
+    color_map = Dict(
+        "sand" => :yellow,
+        "water" => :blue
+    )
+    
+    colors = [get(color_map, p.material, :red) for p in particles]
+    
     plt = scatter3d(x, y, z,
             markersize=3,
-            markercolor=:blue,
+            markercolor=colors,
             xlim=(0, box_size),
             ylim=(0, box_size),
             zlim=(0, box_size),
@@ -258,8 +288,8 @@ end
 # -----------------------------------------------------------------------------
 #                           SPH Parameters
 # -----------------------------------------------------------------------------
-const num_particles = 10
-const dt = 0.01
+const num_particles = 300
+const dt = 0.001
 const box_size = 1.0
 const damping = 1.0
 
@@ -267,7 +297,7 @@ const smoothing_length = 0.1
 const stiff_coef = 100.0
 const target_density = 1000.0
 const viscosity_coef = 0.2
-const restitution_coefficient = 0.2
+const restitution_coefficient = 0.0
 const gravity = -10.0
 
 # -----------------------------------------------------------------------------
@@ -278,14 +308,15 @@ function main()
     
     t = 0.0
     frame_count = 0
+    save_interval = max(1, round(Int, 0.01 / dt))
     
     while t < 10.0
         simulate_step!(particles)
         
-        if frame_count % 1 == 0  # Save every frame
+        if frame_count % save_interval == 0  # Save every X frame
             plt = visualize_sph(particles, t)
             display(plt)
-            sleep(0.1)  
+            #sleep(0.1)  
         end
         
         t += dt
