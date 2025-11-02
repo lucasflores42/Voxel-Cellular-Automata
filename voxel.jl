@@ -19,22 +19,53 @@ end
 # -----------------------------------------------------------------------------
 function initialize_particles()
     particles = Vector{Particle}(undef, num_particles)
-    
-    for i in 1:num_particles
-        pos = [0.2*rand(), 0.2*rand(), 0.5*rand()]  
-        vel = [rand() * 0.0, rand() * 0.0, -rand()*0.0] 
-        particles[i] = Particle(
-            pos,
-            vel,    # velocity
-            [0.0, 0.0, gravity],  # acceleration
-            1000.0,             # density
-            0.0,                # pressure
-            1.0,                # mass
-            "sand",             # material 
-            0.02                # radius
+    id = 1
+
+    for i in 1:water_num_particles
+        particles[id] = Particle(
+            [0.02+0.5*rand(), (box_size-0.02)*rand(), 0.02+0.95*rand()],    # position
+            [rand() * 0.0, rand() * 0.0, -rand()*0.5],                      # velocity
+            [0.0, 0.0, gravity],                                            # acceleration
+            1000.0,                                                         # density
+            0.0,                                                            # pressure
+            1.0,                                                            # mass
+            "water",                                                          # material 
+            0.02                                                            # radius
         )
+
+        id += 1
+    end
+
+    for i in 1:sand_num_particles
+        particles[id] = Particle(
+            [0.02+0.2*rand(), 0.02+0.2*rand(), 0.02+0.95*rand()],    # position
+            [rand() * 0.0, rand() * 0.0, -rand()*0.5],                      # velocity
+            [0.0, 0.0, gravity],                                            # acceleration
+            1000.0,                                                         # density
+            0.0,                                                            # pressure
+            1.0,                                                            # mass
+            "sand",                                                          # material 
+            0.02                                                            # radius
+        )
+
+        id += 1
     end
     
+    for i in 1:air_num_particles
+        particles[id] = Particle(
+            [0.02+0.5*rand(), (box_size-0.02)*rand(), 0.02+0.95*rand()],    # position
+            [rand() * 0.0, rand() * 0.0, -rand()*0.5],                      # velocity
+            [0.0, 0.0, -gravity],                                            # acceleration
+            1000.0,                                                         # density
+            0.0,                                                            # pressure
+            1.0,                                                            # mass
+            "air",                                                          # material 
+            0.02                                                            # radius
+        )
+
+        id += 1
+    end
+
     return particles
 end
 
@@ -68,8 +99,11 @@ function calculate_density_pressure!(particle1,particles)
     end
     
     # Calculate pressure 
-    particle1.pressure = stiff_coef * ((particle1.density/target_density)^7 - 1)
-
+    if particle1.material == "air"
+        particle1.pressure = air_stiff_coef * ((particle1.density/air_target_density)^7 - 1)
+    elseif particle1.material == "water"
+        particle1.pressure = water_stiff_coef * ((particle1.density/water_target_density)^7 - 1)
+    end
 end
 
 
@@ -130,10 +164,10 @@ function calculate_forces!(particles)
             Fi_pressure = -grad_pressure 
             
             # Viscosity force (ν∇²v)
-            Fi_viscosity = particles[i].mass * viscosity_coef * laplacian_velocity
+            Fi_viscosity = particles[i].mass * water_viscosity_coef * laplacian_velocity
             
             # Gravity 
-            Fi_gravity = particles[i].mass * [0.0, 0.0, -10.0]
+            Fi_gravity = particles[i].mass * [0.0, 0.0, gravity]
             
             # Total forces
             Fi = Fi_pressure + Fi_viscosity + Fi_gravity
@@ -142,7 +176,73 @@ function calculate_forces!(particles)
             particles[i].velocity .+= (Fi / particles[i].mass) .* dt
             particles[i].position .+= particles[i].velocity .* dt
 
-            @printf "Particle %d: Pos=(%.3f, %.3f, %.3f) Vel=(%.3f, %.3f, %.3f) Density=%.2f Pressure=%.2f Fi_pressure=(%.3f, %.3f, %.3f) Fi_viscosity=(%.3f, %.3f, %.3f)\n" i particles[i].position[1] particles[i].position[2] particles[i].position[3] particles[i].velocity[1] particles[i].velocity[2] particles[i].velocity[3] particles[i].density particles[i].pressure Fi_pressure[1] Fi_pressure[2] Fi_pressure[3] Fi_viscosity[1] Fi_viscosity[2] Fi_viscosity[3]
+            #@printf "Particle %d: Pos=(%.3f, %.3f, %.3f) Vel=(%.3f, %.3f, %.3f) Density=%.2f Pressure=%.2f Fi_pressure=(%.3f, %.3f, %.3f) Fi_viscosity=(%.3f, %.3f, %.3f)\n" i particles[i].position[1] particles[i].position[2] particles[i].position[3] particles[i].velocity[1] particles[i].velocity[2] particles[i].velocity[3] particles[i].density particles[i].pressure Fi_pressure[1] Fi_pressure[2] Fi_pressure[3] Fi_viscosity[1] Fi_viscosity[2] Fi_viscosity[3]
+        end
+
+        if particles[i].material == "air"
+
+            calculate_density_pressure!(particles[i],particles)
+
+            grad_pressure = zeros(3)
+            laplacian_velocity = zeros(3)
+            
+            # Calculate pressure gradient and velocity Laplacian
+            for j in 1:length(particles)
+                if i == j
+                    continue
+                end
+                
+                r_vec = particles[i].position - particles[j].position
+                r = norm(r_vec)
+                
+                if r > smoothing_length || r == 0
+                    continue
+                end
+                
+                # Kernel gradient calculation
+                q = r / smoothing_length
+                kernel_grad = zeros(3)
+                if q <= 1.0
+                    factor = (-3.0 + 2.25*q) / (π * smoothing_length^5)
+                    kernel_grad = factor * r_vec
+                elseif q <= 2.0
+                    factor = -0.75 * (2.0 - q)^2 / (π * smoothing_length^5 * q)
+                    kernel_grad = factor * r_vec
+                end
+                
+                # Pressure gradient (Equation 6)
+                pressure_term = (particles[i].pressure / (particles[i].density^2) + 
+                            particles[j].pressure / (particles[j].density^2))
+                grad_pressure += particles[j].mass * pressure_term * kernel_grad
+                
+                # Velocity Laplacian (Equation 8)
+                v_ij = particles[i].velocity - particles[j].velocity
+                dot_r_grad = dot(r_vec, kernel_grad)
+                denominator = dot(r_vec, r_vec) + 0.01 * smoothing_length^2
+                
+                if denominator != 0
+                    laplacian_velocity += 2.0 * (particles[j].mass / particles[j].density) * 
+                                        v_ij * (dot_r_grad / denominator)
+                end
+            end
+            
+            # Pressure force (-∇P/ρ)
+            Fi_pressure = -grad_pressure 
+            
+            # Viscosity force (ν∇²v)
+            Fi_viscosity = particles[i].mass * air_viscosity_coef * laplacian_velocity
+            
+            # Gravity 
+            Fi_gravity = particles[i].mass * [0.0, 0.0, -gravity]
+            
+            # Total forces
+            Fi = Fi_pressure + Fi_viscosity + Fi_gravity
+            
+            # Update velocity and position
+            particles[i].velocity .+= (Fi / particles[i].mass) .* dt
+            particles[i].position .+= particles[i].velocity .* dt
+
+            #@printf "Particle %d: Pos=(%.3f, %.3f, %.3f) Vel=(%.3f, %.3f, %.3f) Density=%.2f Pressure=%.2f Fi_pressure=(%.3f, %.3f, %.3f) Fi_viscosity=(%.3f, %.3f, %.3f)\n" i particles[i].position[1] particles[i].position[2] particles[i].position[3] particles[i].velocity[1] particles[i].velocity[2] particles[i].velocity[3] particles[i].density particles[i].pressure Fi_pressure[1] Fi_pressure[2] Fi_pressure[3] Fi_viscosity[1] Fi_viscosity[2] Fi_viscosity[3]
         end
 
         if particles[i].material == "sand"
@@ -161,7 +261,7 @@ function calculate_forces!(particles)
         end
     end
 
-    calculate_positions!(particles)
+    calculate_sand_positions!(particles)
 end
 # -----------------------------------------------------------------------------
 #                           Calculate colisions
@@ -189,8 +289,8 @@ function calculate_colision!(particle1,particle2)
         particle2.position .-= (particle1.radius + particle2.radius - r) * normal /2
 
         r = particle1.radius + particle2.radius
-        dv1 = - (1 + restitution_coefficient) * m2 / (m1 + m2) * dot(v1 - v2, x1 - x2) * (x1 - x2) / r^2
-        dv2 = - (1 + restitution_coefficient) * m1 / (m1 + m2) * dot(v2 - v1, x2 - x1) * (x2 - x1) / r^2
+        dv1 = - (1 + colision_restitution_coefficient) * m2 / (m1 + m2) * dot(v1 - v2, x1 - x2) * (x1 - x2) / r^2
+        dv2 = - (1 + colision_restitution_coefficient) * m1 / (m1 + m2) * dot(v2 - v1, x2 - x1) * (x2 - x1) / r^2
         particle1.velocity .+= dv1
         particle2.velocity .+= dv2
 
@@ -206,9 +306,11 @@ end
 # -----------------------------------------------------------------------------
 #                           Calculate positions
 # -----------------------------------------------------------------------------
-function calculate_positions!(particles)
+function calculate_sand_positions!(particles)
     for i in 1:length(particles)
-        particles[i].position .+= particles[i].velocity * dt
+        if particles[i].material == "sand"
+         particles[i].position .+= particles[i].velocity * dt
+        end
     end
 end
 
@@ -266,7 +368,8 @@ function visualize_sph(particles, step)
     
     color_map = Dict(
         "sand" => :yellow,
-        "water" => :blue
+        "water" => :blue,
+        "air" => :gray
     )
     
     colors = [get(color_map, p.material, :red) for p in particles]
@@ -278,7 +381,7 @@ function visualize_sph(particles, step)
             ylim=(0, box_size),
             zlim=(0, box_size),
             title="SPH Simulation - Time $(round(step, digits=2))s",
-            xlabel="X", ylabel="Y", zlabel="Z",
+            xlabel="Y", ylabel="X", zlabel="Z",
             legend=false,
             camera=(30, 30))
     
@@ -288,16 +391,30 @@ end
 # -----------------------------------------------------------------------------
 #                           SPH Parameters
 # -----------------------------------------------------------------------------
-const num_particles = 300
-const dt = 0.001
+# world
+const water_num_particles = 500
+const sand_num_particles = 300
+const air_num_particles = 100
+const num_particles = water_num_particles + sand_num_particles + air_num_particles
+
+const dt = 0.01
 const box_size = 1.0
-const damping = 1.0
+const damping = 0.0
 
 const smoothing_length = 0.1
-const stiff_coef = 100.0
-const target_density = 1000.0
-const viscosity_coef = 0.2
-const restitution_coefficient = 0.0
+
+# water
+const water_target_density = 1000.0
+const water_stiff_coef = 100.
+const water_viscosity_coef = 0.3
+
+# air
+const air_target_density = 1000.0
+const air_stiff_coef = 100.
+const air_viscosity_coef = 0.35
+
+# colision
+const colision_restitution_coefficient = 0.0
 const gravity = -10.0
 
 # -----------------------------------------------------------------------------
