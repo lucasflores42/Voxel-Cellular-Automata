@@ -12,6 +12,7 @@ mutable struct Particle
     mass::Float64
     material::String
     radius::Float64
+    temperature::Float64
 end
 
 # -----------------------------------------------------------------------------
@@ -29,8 +30,9 @@ function initialize_particles()
             1000.0,                                                         # density
             0.0,                                                            # pressure
             1.0,                                                            # mass
-            "water",                                                          # material 
-            0.02                                                            # radius
+            "water",                                                        # material 
+            0.02,                                                           # radius
+            20                                                              # temperature
         )
 
         id += 1
@@ -38,14 +40,15 @@ function initialize_particles()
 
     for i in 1:sand_num_particles
         particles[id] = Particle(
-            [0.02+0.2*rand(), 0.02+0.2*rand(), 0.02+0.95*rand()],    # position
+            [0.02+0.2*rand(), 0.02+0.2*rand(), 0.02+0.95*rand()],           # position
             [rand() * 0.0, rand() * 0.0, -rand()*0.5],                      # velocity
             [0.0, 0.0, gravity],                                            # acceleration
             1000.0,                                                         # density
             0.0,                                                            # pressure
             1.0,                                                            # mass
-            "sand",                                                          # material 
-            0.02                                                            # radius
+            "sand",                                                         # material 
+            0.02,                                                           # radius
+            0                                                               # temperature
         )
 
         id += 1
@@ -55,12 +58,13 @@ function initialize_particles()
         particles[id] = Particle(
             [0.02+0.5*rand(), (box_size-0.02)*rand(), 0.02+0.95*rand()],    # position
             [rand() * 0.0, rand() * 0.0, -rand()*0.5],                      # velocity
-            [0.0, 0.0, -gravity],                                            # acceleration
+            [0.0, 0.0, -gravity],                                           # acceleration
             1000.0,                                                         # density
             0.0,                                                            # pressure
             1.0,                                                            # mass
             "air",                                                          # material 
-            0.02                                                            # radius
+            0.02,                                                           # radius
+            120                                                             # temperature
         )
 
         id += 1
@@ -80,6 +84,35 @@ function kernel(r, h)
         return 0.25 * (2.0 - q)^3 / (π * h^3)
     else
         return 0.0
+    end
+end
+
+# -----------------------------------------------------------------------------
+#                           Temperature Calculation
+# -----------------------------------------------------------------------------
+function calculate_temperature!(particle1,particles)
+    temp = 0.0
+
+    for j in 1:length(particles)
+        if particle1.material == particles[j].material
+            
+            r_vec = particle1.position - particles[j].position
+            r = norm(r_vec)
+            
+            temp += 0.03 * (norm(particles[j].velocity)^1) * kernel(r, smoothing_length)
+        end
+    end
+
+    particle1.temperature = temp
+
+    if particle1.material == "air"
+       @printf "temperature: %.2f\n" particle1.temperature
+    end
+    
+    if particle1.temperature > 100.0
+        particle1.material = "air"
+    elseif particle1.temperature <= 200.0
+        particle1.material = "water"
     end
 end
 
@@ -113,6 +146,8 @@ end
 function calculate_forces!(particles)
 
     for i in 1:length(particles)
+        calculate_temperature!(particles[i],particles)
+
         if particles[i].material == "water"
 
             calculate_density_pressure!(particles[i],particles)
@@ -366,14 +401,31 @@ function visualize_sph(particles, step)
     y = [p.position[2] for p in particles]
     z = [p.position[3] for p in particles]
     
+    #=
     color_map = Dict(
         "sand" => :yellow,
         "water" => :blue,
         "air" => :gray
     )
-    
+
     colors = [get(color_map, p.material, :red) for p in particles]
-    
+    =#
+
+    colors = []
+    for p in particles
+        if p.material == "water"
+            t = clamp(p.temperature / 100.0, 0.0, 1.0)
+            color = RGB(t, 0.0, 1.0 - t)  #
+            push!(colors, color)
+        else
+            color_map = Dict(
+                "sand" => :yellow,
+                "air" => :gray
+            )
+            push!(colors, get(color_map, p.material, :red))
+        end
+    end
+
     plt = scatter3d(x, y, z,
             markersize=3,
             markercolor=colors,
@@ -393,8 +445,8 @@ end
 # -----------------------------------------------------------------------------
 # world
 const water_num_particles = 500
-const sand_num_particles = 300
-const air_num_particles = 100
+const sand_num_particles = 000
+const air_num_particles = 000
 const num_particles = water_num_particles + sand_num_particles + air_num_particles
 
 const dt = 0.01
